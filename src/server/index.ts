@@ -1,5 +1,4 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -39,6 +38,10 @@ export class ArgoMCPServer {
     this.workflowService = new ArgoWorkflowService(this.argoClient, this.config);
     
     this.setupHandlers();
+  }
+
+  getMcpServer(): Server {
+    return this.server;
   }
 
   async initialize(): Promise<void> {
@@ -597,7 +600,7 @@ export class ArgoMCPServer {
     }
   }
 
-  async start(transport: StdioServerTransport): Promise<void> {
+  async start(transport: any): Promise<void> {
     await this.server.connect(transport);
     logger.info('MCP server connected to transport');
   }
