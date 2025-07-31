@@ -10,6 +10,24 @@ const ConfigSchema = z.object({
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
   LOG_FORMAT: z.enum(['json', 'pretty']).default('json'),
   
+  // Transport Configuration
+  TRANSPORT_TYPE: z.enum(['stdio', 'http']).default('http'),
+  
+  // HTTP Transport Configuration
+  HTTP_PORT: z.number().int().positive().default(8080),
+  HTTP_HOST: z.string().default('127.0.0.1'), // Bind to localhost by default for security
+  HTTP_PATH: z.string().default('/mcp'),
+  HTTP_SESSION_TTL: z.number().int().positive().default(3600000), // 1 hour
+  HTTP_AUTH_TOKEN: z.string().optional(),
+  HTTP_VALIDATE_ORIGIN: z
+    .string()
+    .transform(val => val === 'true')
+    .default('true'),
+  HTTP_ALLOWED_ORIGINS: z
+    .string()
+    .transform(val => val.split(',').map(s => s.trim()).filter(Boolean))
+    .default('http://localhost,https://localhost,http://localhost:3000,https://localhost:3000,http://localhost:8080,https://localhost:8080,http://localhost:8083,https://localhost:8083'),
+  
   // Argo Configuration
   ARGO_SERVER_URL: z.string().url(),
   ARGO_TOKEN: z.string().optional(),
@@ -52,6 +70,14 @@ class ConfigManager {
         NODE_ENV: process.env.NODE_ENV,
         LOG_LEVEL: process.env.LOG_LEVEL,
         LOG_FORMAT: process.env.LOG_FORMAT,
+        
+        HTTP_PORT: process.env.HTTP_PORT ? parseInt(process.env.HTTP_PORT) : undefined,
+        HTTP_HOST: process.env.HTTP_HOST,
+        HTTP_PATH: process.env.HTTP_PATH,
+        HTTP_SESSION_TTL: process.env.HTTP_SESSION_TTL ? parseInt(process.env.HTTP_SESSION_TTL) : undefined,
+        HTTP_AUTH_TOKEN: process.env.HTTP_AUTH_TOKEN,
+        HTTP_VALIDATE_ORIGIN: process.env.HTTP_VALIDATE_ORIGIN,
+        HTTP_ALLOWED_ORIGINS: process.env.HTTP_ALLOWED_ORIGINS,
         
         ARGO_SERVER_URL: process.env.ARGO_SERVER_URL,
         ARGO_TOKEN: process.env.ARGO_TOKEN,
@@ -97,5 +123,5 @@ class ConfigManager {
   }
 }
 
+// Export a singleton instance for easy access
 export const config = ConfigManager.getInstance().config;
-export const configManager = ConfigManager.getInstance();
