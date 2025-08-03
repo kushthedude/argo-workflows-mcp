@@ -1,81 +1,96 @@
 {
-    "name": "argo-workflows-mcp-server",
-    "version": "1.0.0",
-    "description": "Production-ready MCP server for Argo Workflows",
-    "main": "dist/index.js",
-    "types": "dist/index.d.ts",
-    "type": "module",
-    "scripts": {
-      "build": "tsc",
-      "start": "node dist/index.js",
-      "dev": "tsx watch src/index.ts",
-      "lint": "eslint src --ext .ts",
-      "test": "jest",
-      "test:watch": "jest --watch",
-      "test:coverage": "jest --coverage",
-      "format": "prettier --write \"src/**/*.ts\"",
-      "typecheck": "tsc --noEmit",
-      "prepare": "npm run build",
-      "docker:build": "docker build -t argo-mcp-server .",
-      "docker:run": "docker run --rm -it --env-file .env argo-mcp-server"
+  "name": "argo-workflows-mcp-server",
+  "version": "1.0.0",
+  "description": "Production-ready MCP server for Argo Workflows",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
-    "keywords": [
-      "mcp",
-      "argo",
-      "workflows",
-      "kubernetes"
-    ],
-    "author": "",
-    "license": "MIT",
-    "dependencies": {
-      "@modelcontextprotocol/sdk": "^0.5.0",
-      "axios": "^1.6.2",
-      "dotenv": "^16.3.1",
-      "limiter": "^2.1.0",
-      "winston": "^3.11.0",
-      "zod": "^3.22.4"
-    },
-    "devDependencies": {
-      "@types/jest": "^29.5.11",
-      "@types/node": "^20.10.5",
-      "@typescript-eslint/eslint-plugin": "^6.15.0",
-      "@typescript-eslint/parser": "^6.15.0",
-      "eslint": "^8.56.0",
-      "jest": "^29.7.0",
-      "prettier": "^3.1.1",
-      "ts-jest": "^29.1.1",
-      "tsx": "^4.7.0",
-      "typescript": "^5.3.3"
-    },
-    "engines": {
-      "node": ">=18.0.0"
-    },
-    "jest": {
-      "preset": "ts-jest",
-      "testEnvironment": "node",
-      "extensionsToTreatAsEsm": [".ts"],
-      "moduleNameMapper": {
-        "^(\\.{1,2}/.*)\\.js$": "$1"
-      },
-      "transform": {
-        "^.+\\.tsx?$": [
-          "ts-jest",
-          {
-            "useESM": true
-          }
-        ]
-      },
-      "roots": [
-        "<rootDir>/src"
-      ],
-      "testMatch": [
-        "**/__tests__/**/*.ts",
-        "**/?(*.)+(spec|test).ts"
-      ],
-      "collectCoverageFrom": [
-        "src/**/*.ts",
-        "!src/**/*.d.ts",
-        "!src/**/__tests__/**"
-      ]
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.js"
     }
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "lint": "eslint src --ext .ts",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build",
+    "docker:build": "docker build -t argo-mcp-server .",
+    "docker:run": "docker run --rm -it --env-file .env argo-mcp-server"
+  },
+  "keywords": [
+    "mcp",
+    "argo",
+    "workflows",
+    "kubernetes"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "limiter": "^2.1.0",
+    "winston": "^3.11.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.10.5",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.1.1",
+    "ts-jest": "^29.1.1",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "optionalDependencies": {
+    "eventsource": "^2.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "extensionsToTreatAsEsm": [".ts"],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "transform": {
+      "^.+\\.tsx?$": [
+        "ts-jest",
+        {
+          "useESM": true
+        }
+      ]
+    },
+    "roots": [
+      "<rootDir>/src"
+    ],
+    "testMatch": [
+      "**/__tests__/**/*.ts",
+      "**/?(*.)+(spec|test).ts"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/**/*.d.ts",
+      "!src/**/__tests__/**"
+    ]
   }
+}

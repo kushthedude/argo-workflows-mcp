@@ -6,24 +6,36 @@ import { SchemaParseError } from '../utils/errors.js';
 
 const logger = createLogger('SchemaParser');
 
-// OpenAPI schema types
+// OpenAPI 2.x (Swagger) types
+interface SwaggerParameter {
+  name: string;
+  in: 'path' | 'query' | 'header' | 'body' | 'formData';
+  required?: boolean;
+  type?: string;
+  schema?: any;
+  description?: string;
+  items?: any;
+}
+
+interface SwaggerOperation {
+  operationId?: string;
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  parameters?: SwaggerParameter[];
+  responses?: Record<string, any>;
+  security?: Array<Record<string, string[]>>;
+  consumes?: string[];
+  produces?: string[];
+}
+
+// OpenAPI 3.x types
 interface OpenAPIParameter {
   name: string;
-  in: 'path' | 'query' | 'header' | 'cookie' | 'body' | 'formData'; // body and formData for Swagger 2.0
+  in: 'path' | 'query' | 'header' | 'cookie';
   required?: boolean;
   schema?: any;
   description?: string;
-  
-  // Swagger 2.0 parameter properties
-  type?: string;
-  format?: string;
-  enum?: any[];
-  items?: any;
-  minimum?: number;
-  maximum?: number;
-  minLength?: number;
-  maxLength?: number;
-  pattern?: string;
 }
 
 interface OpenAPIOperation {
@@ -44,13 +56,21 @@ interface OpenAPIOperation {
   security?: Array<Record<string, string[]>>;
 }
 
-interface OpenAPIPath {
-  [method: string]: OpenAPIOperation;
+type Operation = OpenAPIOperation | SwaggerOperation;
+
+// Base schema interface
+interface BaseSchema {
+  info: {
+    title: string;
+    version: string;
+    description?: string;
+  };
+  paths: Record<string, Record<string, Operation>>;
 }
 
-interface OpenAPISchema {
-  // OpenAPI 3.x
-  openapi?: string;
+// OpenAPI 3.x schema
+interface OpenAPI3Schema extends BaseSchema {
+  openapi: string;
   servers?: Array<{
     url: string;
     description?: string;
@@ -59,30 +79,25 @@ interface OpenAPISchema {
     schemas?: Record<string, any>;
     securitySchemes?: Record<string, any>;
   };
-  
-  // Swagger 2.0
-  swagger?: string;
+}
+
+// OpenAPI 2.x (Swagger) schema
+interface OpenAPI2Schema extends BaseSchema {
+  swagger: string;
   host?: string;
   basePath?: string;
   schemes?: string[];
-  consumes?: string[];
-  produces?: string[];
   definitions?: Record<string, any>;
   securityDefinitions?: Record<string, any>;
-  
-  // Common to both
-  info: {
-    title: string;
-    version: string;
-    description?: string;
-  };
-  paths: Record<string, OpenAPIPath>;
 }
+
+type OpenAPISchema = OpenAPI3Schema | OpenAPI2Schema;
 
 export class OpenAPISchemaParser {
   private schema: OpenAPISchema | null = null;
   private readonly schemaPath: string;
   private tools: Tool[] = [];
+  private isOpenAPI3: boolean = false;
 
   constructor(schemaPath: string) {
     this.schemaPath = path.resolve(schemaPath);
@@ -95,13 +110,13 @@ export class OpenAPISchemaParser {
       const schemaContent = await fs.readFile(this.schemaPath, 'utf-8');
       this.schema = JSON.parse(schemaContent) as OpenAPISchema;
       
+      this.detectVersion();
       this.validateSchema();
       
-      const formatType = this.isSwagger2() ? 'Swagger 2.0' : 'OpenAPI 3.x';
-      logger.info('API schema loaded successfully', {
-        format: formatType,
+      logger.info('OpenAPI schema loaded successfully', {
         title: this.schema.info.title,
         version: this.schema.info.version,
+        apiVersion: this.isOpenAPI3 ? '3.x' : '2.x',
         pathCount: Object.keys(this.schema.paths).length,
       });
 
@@ -115,20 +130,24 @@ export class OpenAPISchemaParser {
     }
   }
 
+  private detectVersion(): void {
+    if (!this.schema) return;
+
+    if ('openapi' in this.schema && this.schema.openapi.startsWith('3.')) {
+      this.isOpenAPI3 = true;
+    } else if ('swagger' in this.schema && this.schema.swagger === '2.0') {
+      this.isOpenAPI3 = false;
+    } else {
+      throw new SchemaParseError(
+        'Unsupported API specification version. Only OpenAPI 3.x and Swagger 2.0 are supported',
+        this.schemaPath
+      );
+    }
+  }
+
   private validateSchema(): void {
     if (!this.schema) {
       throw new SchemaParseError('Schema not loaded', this.schemaPath);
-    }
-
-    const isOpenAPI3 = this.schema.openapi?.startsWith('3.');
-    const isSwagger2 = this.schema.swagger === '2.0';
-    
-    if (!isOpenAPI3 && !isSwagger2) {
-      const version = this.schema.openapi || this.schema.swagger || 'unknown';
-      throw new SchemaParseError(
-        `Unsupported API spec version: ${version}. Only OpenAPI 3.x and Swagger 2.0 are supported`,
-        this.schemaPath
-      );
     }
 
     if (!this.schema.paths || Object.keys(this.schema.paths).length === 0) {
@@ -153,15 +172,17 @@ export class OpenAPISchemaParser {
         if (!this.isHttpMethod(method)) continue;
         if (!this.isOperation(operation)) continue;
 
-        // Skip if no operationId or already processed
-        if (!operation.operationId || processedOperations.has(operation.operationId)) {
+        // Generate operationId if missing (common in Swagger 2.0)
+        const operationId = operation.operationId || this.generateOperationId(method, pathTemplate);
+        
+        if (processedOperations.has(operationId)) {
           continue;
         }
 
-        const tool = this.operationToTool(pathTemplate, method, operation);
+        const tool = this.operationToTool(pathTemplate, method, { ...operation, operationId });
         if (tool) {
           tools.push(tool);
-          processedOperations.add(operation.operationId);
+          processedOperations.add(operationId);
         }
       }
     }
@@ -170,16 +191,31 @@ export class OpenAPISchemaParser {
     return tools;
   }
 
+  private generateOperationId(method: string, path: string): string {
+    // Generate a readable operationId from method and path
+    const pathParts = path.split('/').filter(p => p && !p.startsWith('{'));
+    const camelCasePath = pathParts
+      .map((part, index) => {
+        if (index === 0) return part;
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join('');
+    
+    return `${method.toLowerCase()}${camelCasePath.charAt(0).toUpperCase() + camelCasePath.slice(1)}`;
+  }
+
   private operationToTool(
     pathTemplate: string,
     method: string,
-    operation: OpenAPIOperation
+    operation: Operation
   ): Tool | null {
     try {
-      const inputSchema = this.buildInputSchema(operation, pathTemplate, method);
+      const inputSchema = this.isOpenAPI3
+        ? this.buildInputSchemaV3(operation as OpenAPIOperation, pathTemplate, method)
+        : this.buildInputSchemaV2(operation as SwaggerOperation, pathTemplate, method);
       
       return {
-        name: operation.operationId,
+        name: operation.operationId!,
         description: this.buildDescription(operation, method, pathTemplate),
         inputSchema,
       };
@@ -192,48 +228,14 @@ export class OpenAPISchemaParser {
     }
   }
 
-  private buildInputSchema(operation: OpenAPIOperation, _pathTemplate: string, _method: string): any {
+  private buildInputSchemaV3(operation: OpenAPIOperation, _pathTemplate: string, _method: string): any {
     const properties: Record<string, any> = {};
     const required: string[] = [];
 
     // Process parameters
     if (operation.parameters) {
       for (const param of operation.parameters) {
-        // Skip body parameters in Swagger 2.0 as they're handled separately
-        if (this.isSwagger2() && param.in === 'body') {
-          continue;
-        }
-        
-        let schema: any;
-        
-        if (this.isSwagger2()) {
-          // Swagger 2.0: parameters can have type directly or schema
-          if (param.schema) {
-            schema = this.resolveSchema(param.schema);
-          } else {
-            // Convert Swagger 2.0 parameter definition to schema format
-            schema = {
-              type: param.type || 'string',
-              format: param.format,
-              enum: param.enum,
-              items: param.items,
-              minimum: param.minimum,
-              maximum: param.maximum,
-              minLength: param.minLength,
-              maxLength: param.maxLength,
-              pattern: param.pattern,
-            };
-            // Remove undefined properties
-            Object.keys(schema).forEach(key => {
-              if (schema[key] === undefined) {
-                delete schema[key];
-              }
-            });
-          }
-        } else {
-          // OpenAPI 3.x: parameters always have schema
-          schema = this.resolveSchema(param.schema || { type: 'string' });
-        }
+        const schema = this.resolveSchema(param.schema || { type: 'string' });
         
         properties[param.name] = {
           ...schema,
@@ -247,8 +249,7 @@ export class OpenAPISchemaParser {
     }
 
     // Process request body
-    if (this.isOpenAPI3() && operation.requestBody?.content?.['application/json']?.schema) {
-      // OpenAPI 3.x request body
+    if (operation.requestBody?.content?.['application/json']?.schema) {
       const bodySchema = this.resolveSchema(
         operation.requestBody.content['application/json'].schema
       );
@@ -261,19 +262,45 @@ export class OpenAPISchemaParser {
       if (operation.requestBody.required) {
         required.push('body');
       }
-    } else if (this.isSwagger2() && operation.parameters) {
-      // Swagger 2.0: look for body parameter
-      const bodyParam = operation.parameters.find(p => p.in === 'body');
-      if (bodyParam) {
-        const bodySchema = this.resolveSchema(bodyParam.schema || { type: 'object' });
-        
-        properties.body = {
-          ...bodySchema,
-          description: bodyParam.description || 'Request body',
-        };
-        
-        if (bodyParam.required) {
-          required.push('body');
+    }
+
+    return {
+      type: 'object',
+      properties,
+      required: required.length > 0 ? required : undefined,
+      additionalProperties: false,
+    };
+  }
+
+  private buildInputSchemaV2(operation: SwaggerOperation, _pathTemplate: string, _method: string): any {
+    const properties: Record<string, any> = {};
+    const required: string[] = [];
+
+    if (operation.parameters) {
+      for (const param of operation.parameters) {
+        if (param.in === 'body') {
+          // Body parameter in Swagger 2.0
+          const bodySchema = this.resolveSchema(param.schema || { type: 'object' });
+          properties.body = {
+            ...bodySchema,
+            description: param.description || 'Request body',
+          };
+          
+          if (param.required) {
+            required.push('body');
+          }
+        } else {
+          // Other parameters (path, query, header)
+          const schema = this.convertSwaggerParamToSchema(param);
+          
+          properties[param.name] = {
+            ...schema,
+            description: param.description,
+          };
+
+          if (param.required) {
+            required.push(param.name);
+          }
         }
       }
     }
@@ -286,8 +313,27 @@ export class OpenAPISchemaParser {
     };
   }
 
+  private convertSwaggerParamToSchema(param: SwaggerParameter): any {
+    const schema: any = {};
+
+    if (param.type) {
+      schema.type = param.type;
+    }
+
+    if (param.items) {
+      schema.items = param.items;
+    }
+
+    // Add more Swagger 2.0 specific conversions as needed
+    if (param.type === 'integer') {
+      schema.type = 'number';
+    }
+
+    return schema;
+  }
+
   private buildDescription(
-    operation: OpenAPIOperation,
+    operation: Operation,
     method: string,
     pathTemplate: string
   ): string {
@@ -312,33 +358,24 @@ export class OpenAPISchemaParser {
     return parts.join(' ');
   }
 
-  private resolveSchema(schema: any, visited: Set<string> = new Set()): any {
+  private resolveSchema(schema: any): any {
     if (!schema) return { type: 'string' };
 
     // Handle $ref
     if (schema.$ref) {
-      // Check for circular reference
-      if (visited.has(schema.$ref)) {
-        logger.warn('Circular reference detected, returning fallback', { ref: schema.$ref });
-        return { type: 'object', description: `Circular reference to ${schema.$ref}` };
-      }
-      
-      visited.add(schema.$ref);
       const resolved = this.resolveRef(schema.$ref);
-      const result = this.resolveSchema(resolved, visited);
-      visited.delete(schema.$ref);
-      return result;
+      return this.resolveSchema(resolved);
     }
 
     // Handle allOf, oneOf, anyOf
     if (schema.allOf) {
-      return this.mergeSchemas(schema.allOf.map((s: any) => this.resolveSchema(s, visited)));
+      return this.mergeSchemas(schema.allOf.map((s: any) => this.resolveSchema(s)));
     }
 
     if (schema.oneOf || schema.anyOf) {
       // Simplify to the first option for MCP tools
       const schemas = schema.oneOf || schema.anyOf;
-      return this.resolveSchema(schemas[0], visited);
+      return this.resolveSchema(schemas[0]);
     }
 
     // Recursively resolve nested schemas
@@ -348,13 +385,13 @@ export class OpenAPISchemaParser {
       resolved.properties = Object.fromEntries(
         Object.entries(resolved.properties).map(([key, value]) => [
           key,
-          this.resolveSchema(value, visited),
+          this.resolveSchema(value),
         ])
       );
     }
 
     if (resolved.items) {
-      resolved.items = this.resolveSchema(resolved.items, visited);
+      resolved.items = this.resolveSchema(resolved.items);
     }
 
     return resolved;
@@ -368,23 +405,25 @@ export class OpenAPISchemaParser {
     const parts = ref.split('/').slice(1); // Remove leading #
     let current: any = this.schema;
 
+    // Handle different reference paths for v2 vs v3
+    if (!this.isOpenAPI3 && parts[0] === 'definitions') {
+      // Swagger 2.0 uses #/definitions/
+      current = (this.schema as OpenAPI2Schema).definitions;
+      parts.shift();
+    } else if (this.isOpenAPI3 && parts[0] === 'components') {
+      // OpenAPI 3.x uses #/components/schemas/
+      current = (this.schema as OpenAPI3Schema).components;
+      parts.shift();
+    }
+
     for (const part of parts) {
-      current = current[part];
+      current = current?.[part];
       if (!current) {
-        logger.warn('Failed to resolve reference', { ref, part });
-        return { type: 'object' }; // Fallback instead of throwing
+        throw new SchemaParseError(`Cannot resolve $ref: ${ref}`, this.schemaPath);
       }
     }
 
     return current;
-  }
-
-  private isSwagger2(): boolean {
-    return this.schema?.swagger === '2.0';
-  }
-
-  private isOpenAPI3(): boolean {
-    return Boolean(this.schema?.openapi?.startsWith('3.'));
   }
 
   private mergeSchemas(schemas: any[]): any {
@@ -414,25 +453,50 @@ export class OpenAPISchemaParser {
     );
   }
 
-  private isOperation(obj: any): obj is OpenAPIOperation {
-    return obj && typeof obj === 'object' && 'operationId' in obj;
+  private isOperation(obj: any): obj is Operation {
+    return obj && typeof obj === 'object' && (
+      'operationId' in obj ||
+      'summary' in obj ||
+      'description' in obj ||
+      'parameters' in obj ||
+      'responses' in obj
+    );
   }
 
   getOperationInfo(operationId: string): {
     method: string;
     path: string;
-    operation: OpenAPIOperation;
+    operation: Operation;
   } | undefined {
     if (!this.schema) return undefined;
 
     for (const [pathTemplate, pathItem] of Object.entries(this.schema.paths)) {
       for (const [method, operation] of Object.entries(pathItem)) {
-        if (this.isOperation(operation) && operation.operationId === operationId) {
-          return { method, path: pathTemplate, operation };
+        if (this.isOperation(operation)) {
+          const opId = operation.operationId || this.generateOperationId(method, pathTemplate);
+          if (opId === operationId) {
+            return { 
+              method, 
+              path: pathTemplate, 
+              operation: { ...operation, operationId: opId }
+            };
+          }
         }
       }
     }
 
     return undefined;
+  }
+
+  getSchemaVersion(): string {
+    if (!this.schema) return 'unknown';
+    
+    if ('openapi' in this.schema) {
+      return `OpenAPI ${this.schema.openapi}`;
+    } else if ('swagger' in this.schema) {
+      return `Swagger ${this.schema.swagger}`;
+    }
+    
+    return 'unknown';
   }
 }
