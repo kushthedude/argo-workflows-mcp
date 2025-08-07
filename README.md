@@ -6,6 +6,7 @@ A production-ready [Model Context Protocol (MCP)](https://modelcontextprotocol.i
 
 ### Core Capabilities
 - **Complete Argo Workflows API Access**: Full integration with Argo Workflows REST API
+- **Multiple Transport Options**: Support for HTTP streaming (SSE), HTTP, and stdio transports
 - **Auto-generated Tools**: Dynamic tool generation from OpenAPI schema
 - **Custom High-level Operations**: Convenient abstractions for common workflow tasks
 - **Production-ready**: Built with security, reliability, and performance in mind
@@ -111,6 +112,8 @@ ARGO_INSECURE_SKIP_VERIFY=false
 
 ### With MCP-compatible AI Assistants
 
+#### Stdio Transport (Default)
+
 Add the server to your MCP client configuration:
 
 ```json
@@ -120,8 +123,58 @@ Add the server to your MCP client configuration:
       "command": "node",
       "args": ["path/to/argo-workflows-mcp-server/dist/index.js"],
       "env": {
+        "TRANSPORT_TYPE": "stdio",
         "ARGO_SERVER_URL": "https://your-argo-server.example.com",
         "ARGO_TOKEN": "your-bearer-token"
+      }
+    }
+  }
+}
+```
+
+#### HTTP Streaming Transport
+
+For HTTP streaming with Server-Sent Events (SSE):
+
+1. Start the server:
+```bash
+# Set environment variables
+export TRANSPORT_TYPE=http
+export ARGO_SERVER_URL=https://your-argo-server.example.com
+export ARGO_TOKEN=your-bearer-token
+export HTTP_PORT=8080
+export HTTP_AUTH_TOKEN=your-secret-token
+
+# Start the server
+npm start
+```
+
+2. Configure your MCP client:
+```json
+{
+  "mcpServers": {
+    "argo-workflows": {
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer your-secret-token"
+      }
+    }
+  }
+}
+```
+
+#### HTTP Transport (without streaming)
+
+For standard HTTP requests without SSE:
+
+```json
+{
+  "mcpServers": {
+    "argo-workflows": {
+      "url": "http://localhost:8080/mcp",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer your-secret-token"
       }
     }
   }
